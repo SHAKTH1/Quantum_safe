@@ -1,0 +1,280 @@
+upload from local - 
+ % Button pushed function: uploadfileButton
+        function uploadfileButtonPushed(app, event)
+             [file, path] = uigetfile({'*.*'}, 'Select a file to upload'); // select file from local
+        if isequal(file, 0) // if file = 0 
+        disp('User selected Cancel');
+          else       
+        if isempty(app.ListBox.Items) // 
+            % If the list is empty, directly add the file
+            app.ListBox.Items = file;
+        else
+            % If the list is not empty, insert the file at the beginning
+            app.ListBox.Items = [{file}, app.ListBox.Items];
+        end
+        
+        % Select the newly added item
+        app.ListBox.Value = file;
+        
+        % Store file info
+        app.ListBox.UserData = struct('path', path, 'file', file);// store additional info about selected file
+                   
+       
+        
+                    disp('User selected ');
+        end
+
+
+ encrypt button code - 
+ % Button pushed function: encryptButton
+        function encryptButtonPushed(app, event)
+          % Get the shared key from the UI
+    sharedKey = app.EntersharedkeyTextArea.Value;
+
+    % Check if a file has been selected from ListBox
+    if isempty(app.ListBox.Value)
+        uialert(app.UIFigure, 'Please upload a file first.', 'File Needed');
+        return;
+    end
+    
+    % Get the selected file from the list and its full file path
+    selectedFile = app.ListBox.Value; // retrive selected file
+    filePath = fullfile(app.ListBox.UserData.path, selectedFile); // retrive path of selected file
+
+    % Read the content of the file
+    fileContent = fileread(filePath);
+    
+    % Assuming we have two attributes for simplicity
+    attributes = {'attribute1', 'attribute2'}; // strings of characters.
+    {In a real-world scenario, you would define attributes based on the specific 
+       requirements and policies of your application. These attributes could be anything 
+relevant to your use case, such as user roles (e.g., 'admin', 'user'), access levels 
+('read', 'write'),}
+    % Encrypt the file content using the shared key and attributes
+    encryptedContent = simpleABEEncrypt(app, fileContent, sharedKey, attributes);
+    
+    % Write the encrypted content back to a file
+    encryptedFilePath = [filePath '.enc']; % Save as a new '.enc' file
+    fileID = fopen(encryptedFilePath, 'wb'); % Open file for writing in binary mode
+    fwrite(fileID, encryptedContent, 'uint8'); % Ensure encrypted data is written as uint8 (8 bit unsigned integer)
+    fclose(fileID);
+
+    % Store the path of the encrypted file in ListBox_2 UserData
+    app.ListBox_2.UserData.path = filePath; % Storing the original file path
+    app.ListBox_2.UserData.encryptedFilePath = encryptedFilePath;
+
+    % Update ListBox_2 to display the encrypted file
+    if isempty(app.ListBox_2.Items)
+        % If ListBox_2 is empty, directly add the encrypted file
+        app.ListBox_2.Items = {[selectedFile ' (encrypted)']};
+    else
+        % If ListBox_2 is not empty, insert the encrypted file at the beginning
+        app.ListBox_2.Items = [{[selectedFile ' (encrypted)']}, app.ListBox_2.Items];
+    end
+    
+    % Select the newly added encrypted file
+    app.ListBox_2.Value = {[selectedFile ' (encrypted)']};
+
+
+    function encryptedData = simpleABEEncrypt(~,fileContent, sharedKey, attributes)
+  % Ensure sharedKey is a character array, not a cell
+    if iscell(sharedKey)
+        sharedKey = sharedKey{1}; // extract the element inside the sharedkeytextarea
+    end
+    numericKey = sum(double(sharedKey)); // converts the string to ascii values(double)
+{For example, if the shared key is 'shakthi', the ASCII values of each
+ character are [115, 104, 97, 107, 116, 104, 105], and the sum of these values is 791.}
+
+    % If attributes is a cell array of strings, handle each attribute
+    if iscell(attributes)
+        attributeKeyComponent = sum(cellfun(@(attr) sum(double(attr)), attributes));
+    else
+        attributeKeyComponent = sum(double(attributes)); % If it's already a character array or string
+    end
+    
+    % Combine the numeric representations to form a simple key
+    combinedKey = bitxor(numericKey, attributeKeyComponent); // xor operation 
+    
+    % XOR the file content with the combined key for a simple encryption
+    encryptedData = bitxor(uint8(fileContent), uint8(mod(combinedKey, 256)));
+{ For example, if fileContent is a sequence of bytes representing text, each byte
+ will be XORed with the combined key to produce the encrypted data.}
+        end
+        end
+     
+uploadtocloud -
+ % Button pushed function: uploadtocloudButton
+        function uploadtocloudButtonPushed(app, event)
+          % Check if a file has been encrypted and selected from ListBox_2
+    if isempty(app.ListBox_2.UserData) || ~isfield(app.ListBox_2.UserData, 'encryptedFilePath')
+        uialert(app.UIFigure, 'Please encrypt a file first.', 'File Needed');
+        return;
+    end
+
+    % Path to the AWS CLI executable
+    awsCliPath = '"C:\Program Files\Amazon\AWSCLIV2\aws"';
+
+    % AWS S3 bucket name
+    bucketName = 'shaakthi';
+
+    % Get the path of the encrypted file from ListBox_2 UserData
+    encryptedFilePath = app.ListBox_2.UserData.encryptedFilePath;
+
+    % Construct the AWS CLI command to upload the encrypted file to S3
+    command = [awsCliPath, ' s3 cp "', encryptedFilePath, '" s3://', bucketName, '/'];
+
+    % Execute the AWS CLI command using system
+    [status, output] = system(command);
+
+    % Check if the command executed successfully
+    if status == 0
+        % Display a message indicating successful upload
+        disp(['Encrypted file uploaded successfully to S3 bucket ', bucketName]);
+    else
+        % Display an error message
+        disp('Error uploading encrypted file to S3 bucket');
+        disp(output); % Display the output of the AWS CLI command for debugging purposes
+    end
+        end
+
+select file from cloud - 
+% Button pushed function: SelectfileButton
+        function SelectfileButtonPushed(app, event)
+
+        % Get file list from S3 bucket
+    bucketName = 'shaakthi'; % Replace with your S3 bucket name
+    command = 'aws s3 ls s3://shaakthi/';
+    [status, fileList] = system(command);
+    if status ~= 0
+        disp('Error listing files in S3 bucket');
+        return;
+    end
+
+    % Split the file list into individual lines
+    fileList = strsplit(fileList, newline);
+    
+    % Extract file names without timestamps
+    fileNames = {};
+    for i = 1:numel(fileList)
+        % Split each line by whitespace and get the last part (file name)
+        parts = strsplit(fileList{i}, ' ');
+        fileName = parts{end};
+        
+        % Remove leading and trailing whitespace
+        fileName = strtrim(fileName);
+        
+        % Add to the list of file names
+        fileNames{i} = fileName;
+    end
+    
+    % Remove empty elements
+    fileNames = fileNames(~cellfun('isempty', fileNames));
+
+    % Display the list of files to the user
+    if isempty(fileNames)
+        disp('No files found in the S3 bucket');
+        return;
+    end
+
+    % Create a cell array to store file names with an additional 'Cancel' option
+    fileListWithCancel = [{'Cancel'}, fileNames];
+
+    % Display a dialog box for the user to select a file
+   [selectedFileIndex, isSelected] = listdlg('PromptString', 'Select a file to decrypt:', ...
+    'SelectionMode', 'single', 'ListString', fileListWithCancel, 'Name', 'Select File');
+
+    % Check if the user canceled the selection or no file was selected
+    if ~isSelected || selectedFileIndex == 1
+        return; % User canceled selection or no file was selected
+    end
+
+    % Get the selected file name
+    selectedFileName = fileNames{selectedFileIndex - 1};
+
+    % Update ListBox_3 to display the selected file name
+    app.ListBox_3.Items = {selectedFileName};
+
+    % Store the selected file URI
+    s3FilePath = ['s3://', bucketName, '/', selectedFileName];
+    app.ListBox_3.UserData.s3URI = s3FilePath;
+
+    % Store the local folder path where the file will be downloaded
+    app.SelectedFilePath = fullfile('./decrypted_file/'); % Set your local folder path
+
+    % Store the selected file name
+    app.SelectedFileName = selectedFileName;
+
+decrypt button code - 
+% Value changed function: DecryptButton
+        function DecryptButtonValueChanged(app, event)
+       % Get the shared key from the UI
+    sharedKey = app.EnterSharedKeyTextArea.Value;
+    
+    % Get the selected filename from ListBox_4
+    selectedFileName = app.ListBox_4.Value;
+    
+    % Check if a file has been selected
+    if isempty(selectedFileName)
+        uialert(app.UIFigure, 'Please select a file for decryption.', 'File Needed');
+        return;
+    end
+    
+    % Construct the full file path
+    selectedFilePath = fullfile(app.SelectedFilePath, selectedFileName);
+    
+    try
+        % Read the encrypted content of the file
+        fileID = fopen(selectedFilePath, 'rb');
+        if fileID == -1
+            uialert(app.UIFigure, 'Failed to open the file.', 'Error');
+            return;
+        end
+        encryptedContent = fread(fileID, '*uint8');
+        fclose(fileID);
+
+        % Assuming we have two attributes for simplicity
+        attributes = {'attribute1', 'attribute2'};
+
+        % Decrypt the file content using the shared key and attributes
+        decryptedContent = simpleABEDecrypt(app, encryptedContent, sharedKey, attributes);
+
+        % Display the decrypted content in ListBox_5
+        app.ListBox_5.Items = {selectedFileName};
+        
+        % Save the decrypted content to a new file
+        [pathstr, name, ext] = fileparts(selectedFilePath);
+        decryptedFileName = [name '_decrypted' ext];
+        decryptedFilePath = fullfile(pathstr, decryptedFileName);
+        fileID = fopen(decryptedFilePath, 'wb');
+        if fileID == -1
+            uialert(app.UIFigure, 'Failed to create the decrypted file.', 'Error');
+            return;
+        end
+        fwrite(fileID, decryptedContent, 'uint8');
+        fclose(fileID);
+
+    catch exception
+        % Display error message if decryption fails
+        uialert(app.UIFigure, ['Failed to decrypt the file: ', exception.message], 'Error');
+    end
+
+function decryptedContent = simpleABEDecrypt(~,encryptedContent, sharedKey, attributes)
+    if iscell(sharedKey) && ~isempty(sharedKey)
+        sharedKey = sharedKey{1};
+    end
+    
+    numericKey = sum(double(sharedKey));
+
+    if ~iscell(attributes)
+        attributes = {attributes};
+    end
+    attributeKeyComponent = sum(cellfun(@(attr) sum(double(attr)), attributes));
+
+    % Adjusted XOR operation for decryption, assuming encryptedContent is uint8
+    decryptedData = bitxor(encryptedContent, uint8(mod(bitxor(numericKey, attributeKeyComponent), 256)));
+
+    % Convert decrypted data back to character data if necessary
+    % Here, we assume the output is expected to be character data.
+    decryptedContent = char(decryptedData);
+
+end 
